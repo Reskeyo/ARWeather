@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../../models/weather_data.dart';
 import '../../utils/ar_projection.dart';
 
-/// Floating wind stream particle in AR space.
 class _WindStreamParticle {
   double x;
   double y;
@@ -22,7 +21,7 @@ class _WindStreamParticle {
 }
 
 /// True AR Weather Overlay rendering spatial clouds, rain shafts,
-/// and dynamic AR wind direction vectors aligned to compass heading and pitch.
+/// AR wind direction vectors, and atmospheric particles aligned to compass heading and pitch.
 class WeatherOverlay extends StatefulWidget {
   final double userLat;
   final double userLon;
@@ -72,13 +71,13 @@ class _WeatherOverlayState extends State<WeatherOverlay>
     _initializedWindStreams = true;
 
     _windStreams.clear();
-    for (int i = 0; i < 25; i++) {
+    for (int i = 0; i < 30; i++) {
       _windStreams.add(_WindStreamParticle(
         x: _random.nextDouble() * size.width,
-        y: _random.nextDouble() * size.height * 0.7,
-        length: 40 + _random.nextDouble() * 70,
-        speed: 2 + _random.nextDouble() * 4,
-        opacity: 0.2 + _random.nextDouble() * 0.45,
+        y: _random.nextDouble() * size.height * 0.75,
+        length: 50 + _random.nextDouble() * 90,
+        speed: 2.5 + _random.nextDouble() * 5.0,
+        opacity: 0.35 + _random.nextDouble() * 0.5,
       ));
     }
   }
@@ -135,11 +134,11 @@ class _ARSpatialWeatherPainter extends CustomPainter {
     onInit(size);
     if (size.width == 0 || size.height == 0) return;
 
-    // 1. Draw AR Wind Vectors & Flow Streams across the sky
-    _paintARWindFlow(canvas, size);
-
-    // 2. Draw Horizon guide line
+    // 1. Draw Horizon Line
     _drawHorizonGuideLine(canvas, size);
+
+    // 2. Draw AR 3D Wind Compass Pointer & Glowing Flow Streams
+    _paintARWindVectorAndFlow(canvas, size);
 
     // 3. Project each spatial grid point onto AR screen
     for (final point in gridPoints) {
@@ -161,26 +160,29 @@ class _ARSpatialWeatherPainter extends CustomPainter {
     }
   }
 
-  /// Paints AR 3D Wind Direction Vectors & 流动 (Flow) Streams across the sky view.
-  void _paintARWindFlow(Canvas canvas, Size size) {
+  /// Renders a glowing 3D AR Wind Compass Pointer & dynamic flow particles in the sky.
+  void _paintARWindVectorAndFlow(Canvas canvas, Size size) {
     final windDirection = centerWeather.windDirection;
     final relativeWindAngle = (windDirection - heading + 360) % 360;
     final windRad = relativeWindAngle * pi / 180;
     final windDx = sin(windRad);
     final windDy = -cos(windRad) * 0.4;
 
-    final paint = Paint()
-      ..strokeWidth = 2.0
+    // ── A. Glowing Wind Flow Particles ──
+    final streamPaint = Paint()
+      ..strokeWidth = 2.5
       ..strokeCap = StrokeCap.round;
 
-    for (final particle in windStreams) {
-      particle.x += windDx * particle.speed * (centerWeather.windSpeed / 15).clamp(0.5, 3.0);
-      particle.y += windDy * particle.speed * 0.5;
+    final effectiveSpeed = max(12.0, centerWeather.windSpeed);
 
-      if (particle.x > size.width + 100) particle.x = -100;
-      if (particle.x < -100) particle.x = size.width + 100;
+    for (final particle in windStreams) {
+      particle.x += windDx * particle.speed * (effectiveSpeed / 15).clamp(0.8, 3.5);
+      particle.y += windDy * particle.speed * 0.6;
+
+      if (particle.x > size.width + 120) particle.x = -120;
+      if (particle.x < -120) particle.x = size.width + 120;
       if (particle.y > size.height) particle.y = 0;
-      if (particle.y < 0) particle.y = size.height * 0.7;
+      if (particle.y < 0) particle.y = size.height * 0.75;
 
       final start = Offset(particle.x, particle.y);
       final end = Offset(
@@ -193,14 +195,46 @@ class _ARSpatialWeatherPainter extends CustomPainter {
         end,
         [
           const Color(0xFF818CF8).withOpacity(0.0),
-          const Color(0xFF38BDF8).withOpacity(particle.opacity * 0.7),
+          const Color(0xFF38BDF8).withOpacity(particle.opacity * 0.8),
           const Color(0xFF818CF8).withOpacity(0.0),
         ],
       );
 
-      paint.shader = streamGradient;
-      canvas.drawLine(start, end, paint);
+      streamPaint.shader = streamGradient;
+      canvas.drawLine(start, end, streamPaint);
     }
+
+    // ── B. Floating AR 3D Wind Direction Arrow in Center Sky ──
+    final arrowCenterX = (size.width / 2) + (sin(windRad) * (size.width * 0.35));
+    final horizonY = (size.height / 2) + (pitch / 37.5) * (size.height / 2);
+    final arrowCenterY = (horizonY - 120).clamp(80.0, size.height * 0.45);
+
+    final arrowCenter = Offset(arrowCenterX, arrowCenterY);
+
+    canvas.save();
+    canvas.translate(arrowCenter.dx, arrowCenter.dy);
+    canvas.rotate(windRad);
+
+    // Draw Arrow Body & Head
+    final arrowPaint = Paint()
+      ..color = const Color(0xFF38BDF8)
+      ..style = PaintingStyle.fill;
+
+    final shadowPaint = Paint()
+      ..color = const Color(0xFF0284C7).withOpacity(0.4)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+
+    final path = Path();
+    path.moveTo(0, -18); // Tip
+    path.lineTo(10, 14);
+    path.lineTo(0, 8);
+    path.lineTo(-10, 14);
+    path.close();
+
+    canvas.drawPath(path, shadowPaint);
+    canvas.drawPath(path, arrowPaint);
+
+    canvas.restore();
   }
 
   void _drawHorizonGuideLine(Canvas canvas, Size size) {
@@ -208,7 +242,7 @@ class _ARSpatialWeatherPainter extends CustomPainter {
     if (horizonY < 0 || horizonY > size.height) return;
 
     final paint = Paint()
-      ..color = Colors.white.withOpacity(0.15)
+      ..color = Colors.white.withOpacity(0.18)
       ..strokeWidth = 1.2;
 
     canvas.drawLine(
@@ -226,21 +260,21 @@ class _ARSpatialWeatherPainter extends CustomPainter {
   ) {
     final weather = point.weather;
     final pos = Offset(projected.x, projected.y);
-    final baseSize = 130.0 * projected.scale;
-    final opacity = (projected.opacity * (weather.cloudCover / 100).clamp(0.35, 1.0))
-        .clamp(0.25, 0.95);
+    final baseSize = 140.0 * projected.scale;
+    final opacity = (projected.opacity * (weather.cloudCover / 100).clamp(0.4, 1.0))
+        .clamp(0.3, 0.95);
 
-    // 1. Draw volumetric cloud billboard at AR coordinates
+    // Volumetric cloud billboard
     if (weather.cloudCover > 10) {
       _drawVolumetricCloudBillboard(canvas, pos, baseSize, opacity);
     }
 
-    // 2. Draw localized rain shaft descending from cloud if raining
+    // Localized rain shaft
     if (weather.rain > 0.05 || weather.weatherCode >= 50) {
       _drawRainShaft(canvas, pos, baseSize, opacity, weather.rain);
     }
 
-    // 3. Draw mini spatial AR distance & weather badge
+    // Spatial AR distance badge
     _drawSpatialDistanceBadge(
       canvas,
       pos + Offset(0, baseSize * 0.45),
@@ -256,8 +290,8 @@ class _ARSpatialWeatherPainter extends CustomPainter {
     double opacity,
   ) {
     final r = cloudSize * 0.4;
-    final cloudColor = Colors.white.withOpacity(opacity * 0.8);
-    final shadowColor = const Color(0xFF475569).withOpacity(opacity * 0.45);
+    final cloudColor = Colors.white.withOpacity(opacity * 0.85);
+    final shadowColor = const Color(0xFF475569).withOpacity(opacity * 0.5);
 
     final subPuffs = [
       Offset.zero,
@@ -297,7 +331,7 @@ class _ARSpatialWeatherPainter extends CustomPainter {
     double rainAmount,
   ) {
     final shaftWidth = cloudSize * 0.85;
-    final shaftHeight = 150.0;
+    final shaftHeight = 160.0;
     final shaftRect = Rect.fromLTWH(
       cloudCenter.dx - shaftWidth / 2,
       cloudCenter.dy + cloudSize * 0.2,
@@ -310,7 +344,7 @@ class _ARSpatialWeatherPainter extends CustomPainter {
         shaftRect.topCenter,
         shaftRect.bottomCenter,
         [
-          const Color(0xFF38BDF8).withOpacity(opacity * 0.5),
+          const Color(0xFF38BDF8).withOpacity(opacity * 0.6),
           const Color(0xFF0284C7).withOpacity(0.0),
         ],
       );
@@ -353,9 +387,9 @@ class _ARSpatialWeatherPainter extends CustomPainter {
       const Radius.circular(10),
     );
 
-    final bgPaint = Paint()..color = const Color(0xFF0F172A).withOpacity(0.6);
+    final bgPaint = Paint()..color = const Color(0xFF0F172A).withOpacity(0.65);
     final borderPaint = Paint()
-      ..color = Colors.white.withOpacity(0.25)
+      ..color = Colors.white.withOpacity(0.3)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0;
 

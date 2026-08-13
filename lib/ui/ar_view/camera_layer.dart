@@ -4,8 +4,8 @@ import 'package:permission_handler/permission_handler.dart';
 
 /// Widget that displays the device's camera feed as a full-screen background.
 ///
-/// Handles runtime permission requests for Camera and Location,
-/// showing a user-friendly Glassmorphism permission button if needed.
+/// Prompts for Camera & Location permissions simultaneously and handles
+/// seamless app pause/resume lifecycle transitions without hanging.
 class CameraLayer extends StatefulWidget {
   const CameraLayer({super.key});
 
@@ -18,67 +18,83 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
   bool _isInitialized = false;
   bool _permissionDenied = false;
   String? _errorMessage;
+  bool _isInitializing = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _requestPermissionsAndInit();
+    _checkPermissionsAndStart();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
+    _controller = null;
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) return;
-
-    if (state == AppLifecycleState.inactive) {
-      controller.dispose();
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      _isInitialized = false;
+      controller?.dispose();
       _controller = null;
-      setState(() => _isInitialized = false);
     } else if (state == AppLifecycleState.resumed) {
-      _requestPermissionsAndInit();
+      _checkPermissionsAndStart();
     }
   }
 
-  /// Explicitly requests camera & location permissions before camera setup.
-  Future<void> _requestPermissionsAndInit() async {
-    setState(() {
-      _permissionDenied = false;
-      _errorMessage = null;
-    });
+  /// Requests Camera and Location permissions simultaneously.
+  Future<void> _checkPermissionsAndStart() async {
+    if (_isInitializing) return;
+    _isInitializing = true;
 
-    // Explicitly prompt user for Camera & Location runtime permissions
-    final cameraStatus = await Permission.camera.request();
-    final locationStatus = await Permission.locationWhenInUse.request();
+    try {
+      final cameraGranted = await Permission.camera.isGranted;
+      final locationGranted = await Permission.locationWhenInUse.isGranted;
 
-    if (cameraStatus.isDenied || cameraStatus.isPermanentlyDenied) {
-      if (mounted) {
-        setState(() => _permissionDenied = true);
+      if (!cameraGranted || !locationGranted) {
+        // Batch request both permissions at the same time
+        final statuses = await [
+          Permission.camera,
+          Permission.locationWhenInUse,
+        ].request();
+
+        if (statuses[Permission.camera]?.isDenied == true ||
+            statuses[Permission.camera]?.isPermanentlyDenied == true) {
+          if (mounted) {
+            setState(() {
+              _permissionDenied = true;
+              _isInitializing = false;
+            });
+          }
+          return;
+        }
       }
-      return;
-    }
 
-    // Also request location if denied (non-blocking for camera)
-    if (locationStatus.isDenied) {
-      await Permission.locationWhenInUse.request();
-    }
+      if (mounted) {
+        setState(() => _permissionDenied = false);
+      }
 
-    await _initCamera();
+      await _initCamera();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorMessage = 'Camera setup error: $e');
+      }
+    } finally {
+      _isInitializing = false;
+    }
   }
 
-  /// Initializes the camera controller with the first back-facing camera.
+  /// Initializes the camera controller with the back camera.
   Future<void> _initCamera() async {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
-        setState(() => _errorMessage = 'No camera device found');
+        if (mounted) setState(() => _errorMessage = 'No camera device found');
         return;
       }
 
@@ -87,18 +103,19 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
         orElse: () => cameras.first,
       );
 
-      _controller = CameraController(
+      final controller = CameraController(
         backCamera,
         ResolutionPreset.high,
         enableAudio: false,
       );
 
-      await _controller!.initialize();
+      _controller = controller;
+      await controller.initialize();
 
       if (!mounted) return;
       setState(() {
         _isInitialized = true;
-        _permissionDenied = false;
+        _errorMessage = null;
       });
     } catch (e) {
       if (mounted) {
@@ -117,7 +134,7 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
       return _buildFallback(_errorMessage!);
     }
 
-    if (!_isInitialized || _controller == null) {
+    if (!_isInitialized || _controller == null || !_controller!.value.isInitialized) {
       return _buildLoading();
     }
 
@@ -133,17 +150,13 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
     );
   }
 
-  /// User-friendly Glassmorphism permission request screen.
   Widget _buildPermissionRequest() {
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF0F172A),
-            Color(0xFF1E1B4B),
-          ],
+          colors: [Color(0xFF0F172A), Color(0xFF1E1B4B)],
         ),
       ),
       child: Center(
@@ -170,7 +183,7 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 24),
               const Text(
-                'Camera Access Required',
+                'Camera & Location Access',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
@@ -180,7 +193,7 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 12),
               Text(
-                'AR Weather needs camera access to overlay 3D weather effects onto your real-world view.',
+                'AR Weather needs Camera and Location access to show 3D weather radar elements over your real-world camera view.',
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.white.withOpacity(0.7),
@@ -195,11 +208,11 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
                   if (status.isPermanentlyDenied) {
                     await openAppSettings();
                   } else {
-                    await _requestPermissionsAndInit();
+                    await _checkPermissionsAndStart();
                   }
                 },
                 icon: const Icon(Icons.check_circle_outline),
-                label: const Text('Grant Camera Access'),
+                label: const Text('Grant Access'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF6366F1),
                   foregroundColor: Colors.white,
@@ -252,10 +265,7 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF0F172A),
-            Color(0xFF1E1B4B),
-          ],
+          colors: [Color(0xFF0F172A), Color(0xFF1E1B4B)],
         ),
       ),
       child: Center(
@@ -278,7 +288,7 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 20),
             OutlinedButton.icon(
-              onPressed: _requestPermissionsAndInit,
+              onPressed: _checkPermissionsAndStart,
               icon: const Icon(Icons.refresh, size: 18),
               label: const Text('Retry Camera'),
               style: OutlinedButton.styleFrom(
