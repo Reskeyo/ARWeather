@@ -31,7 +31,7 @@ android {
         release {
             // Using debug signing for automated CI builds.
             // Replace with a proper keystore for production releases.
-            signingConfig = signingConfigs.debug
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             isShrinkResources = false
         }
