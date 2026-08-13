@@ -10,19 +10,38 @@ import '../widgets/wind_direction_indicator.dart';
 import 'camera_layer.dart';
 import 'weather_overlay.dart';
 
-/// Fallback demo weather used during initial load or if GPS/API is unavailable,
-/// ensuring AR 3D particle effects and UI are ALWAYS active instantly.
-const _defaultWeather = WeatherData(
-  temperature: 21.0,
-  cloudCover: 55.0,
-  windDirection: 225.0,
-  windSpeed: 16.0,
-  rain: 0.0,
-  weatherCode: 2, // Partly Cloudy
-);
+/// Fallback spatial grid generated around default coordinates for initial load / demo state.
+List<WeatherGridPoint> _generateFallbackGrid(double userLat, double userLon) {
+  final List<WeatherGridPoint> points = [];
+  const offsets = [-0.04, -0.02, 0.0, 0.02, 0.04];
 
-/// The main AR Weather screen — composites the camera feed, 3D weather particle
-/// overlay, and compact glassmorphism UI overlays into an immersive AR view.
+  for (final dx in offsets) {
+    for (final dy in offsets) {
+      if (dx == 0.0 && dy == 0.0) continue; // skip center
+      final lat = userLat + dx;
+      final lon = userLon + dy;
+      points.add(WeatherGridPoint(
+        latitude: lat,
+        longitude: lon,
+        weather: WeatherData(
+          temperature: 20.0,
+          cloudCover: 60.0 + (dx.abs() + dy.abs()) * 500,
+          windDirection: 210.0,
+          windSpeed: 18.0,
+          rain: (dx > 0) ? 1.5 : 0.0,
+          weatherCode: (dx > 0) ? 61 : 2,
+          latitude: lat,
+          longitude: lon,
+        ),
+      ));
+    }
+  }
+
+  return points;
+}
+
+/// The main AR Weather screen — composites live camera feed, True AR spatial 3D weather radar,
+/// and compact glassmorphism UI overlays into a real-time experience.
 class ARWeatherScreen extends ConsumerStatefulWidget {
   const ARWeatherScreen({super.key});
 
@@ -36,7 +55,7 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
   @override
   void initState() {
     super.initState();
-    // Auto-refresh weather every 5 minutes
+    // Refresh weather grid every 5 minutes
     _refreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       ref.read(weatherRefreshProvider.notifier).state++;
     });
@@ -50,12 +69,27 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final weatherAsync = ref.watch(weatherDataProvider);
+    final weatherGridAsync = ref.watch(weatherGridProvider);
+    final compassHeading = ref.watch(compassHeadingProvider).valueOrNull ?? 0.0;
+    final devicePitch = ref.watch(devicePitchProvider).valueOrNull ?? 0.0;
     final windAngle = ref.watch(windRelativeAngleProvider);
-    final compassHeading = ref.watch(compassHeadingProvider);
 
-    // Active weather model (uses fetched data or fallback demo weather)
-    final weather = weatherAsync.valueOrNull ?? _defaultWeather;
+    // Extract center weather & spatial grid points
+    final gridData = weatherGridAsync.valueOrNull;
+    final centerWeather = gridData?.centerWeather ??
+        const WeatherData(
+          temperature: 21.0,
+          cloudCover: 55.0,
+          windDirection: 225.0,
+          windSpeed: 16.0,
+          rain: 0.0,
+          weatherCode: 2,
+        );
+
+    final userLat = centerWeather.latitude != 0.0 ? centerWeather.latitude : 52.52;
+    final userLon = centerWeather.longitude != 0.0 ? centerWeather.longitude : 13.41;
+
+    final gridPoints = gridData?.gridPoints ?? _generateFallbackGrid(userLat, userLon);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -65,26 +99,26 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
           // ── Layer 1: Live Camera Feed ──
           const CameraLayer(),
 
-          // ── Layer 2: 3D AR Weather Particle Overlay (ALWAYS ACTIVE) ──
+          // ── Layer 2: True AR Spatial Weather Overlay ──
           WeatherOverlay(
-            cloudCover: weather.cloudCover,
-            rain: weather.rain,
-            weatherCode: weather.weatherCode,
-            windAngle: windAngle,
-            windSpeed: weather.windSpeed,
+            userLat: userLat,
+            userLon: userLon,
+            gridPoints: gridPoints,
+            heading: compassHeading,
+            pitch: devicePitch,
           ),
 
-          // ── Layer 3: Glassmorphism UI Overlay ──
+          // ── Layer 3: Glassmorphism UI Controls & Overlay ──
           SafeArea(
             child: Column(
               children: [
-                // Compact Top Bar with Compass & Wind Direction
-                _buildTopBar(windAngle, compassHeading, weather),
+                // Top Bar with Compass Heading & Wind Compass
+                _buildTopBar(compassHeading, windAngle, centerWeather),
 
                 const Spacer(),
 
-                // Compact Floating Bottom Glass Weather Bar (~15% height)
-                _buildCompactBottomBar(weather, weatherAsync.isLoading),
+                // Bottom Floating Glass Weather Bar
+                _buildCompactBottomBar(centerWeather, weatherGridAsync.isLoading),
               ],
             ),
           ),
@@ -93,10 +127,9 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
     );
   }
 
-  /// Builds the top navigation bar with compass heading and wind compass.
   Widget _buildTopBar(
+    double compassHeading,
     double windAngle,
-    AsyncValue<double> compassHeading,
     WeatherData weather,
   ) {
     return Padding(
@@ -104,7 +137,6 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Title & Compass Heading
           GlassCard(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             borderRadius: 16,
@@ -112,9 +144,9 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Icon(
-                  Icons.explore_outlined,
-                  color: Color(0xFF818CF8),
-                  size: 18,
+                  Icons.radar,
+                  color: Color(0xFF38BDF8),
+                  size: 20,
                 ),
                 const SizedBox(width: 8),
                 Column(
@@ -122,22 +154,18 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
-                      'AR Weather',
+                      'True AR Radar',
                       style: TextStyle(
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
                     ),
                     Text(
-                      compassHeading.when(
-                        data: (h) => '${h.round()}° ${weather.windDirectionLabel}',
-                        loading: () => 'Calibrating…',
-                        error: (_, __) => 'Heading N/A',
-                      ),
+                      '${compassHeading.round()}° ${weather.windDirectionLabel} • ${weather.conditionText}',
                       style: TextStyle(
                         fontSize: 11,
-                        color: Colors.white.withOpacity(0.6),
+                        color: Colors.white.withOpacity(0.65),
                       ),
                     ),
                   ],
@@ -146,7 +174,7 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
             ),
           ),
 
-          // Wind direction compass widget
+          // Wind direction compass indicator
           WindDirectionIndicator(
             relativeWindAngle: windAngle,
             speedLabel: '${weather.windSpeed.round()} km/h',
@@ -157,7 +185,6 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
     );
   }
 
-  /// Builds a super compact, non-intrusive bottom weather glass bar.
   Widget _buildCompactBottomBar(WeatherData weather, bool isLoading) {
     return Padding(
       padding: const EdgeInsets.only(left: 16, right: 16, bottom: 12),
@@ -169,26 +196,21 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
           children: [
             Row(
               children: [
-                // Temperature & Condition
                 Expanded(
                   child: WeatherHeader(weather: weather),
                 ),
-
-                // Refreshing spinner indicator if active
                 if (isLoading)
                   const SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Color(0xFF818CF8),
+                      color: Color(0xFF38BDF8),
                     ),
                   ),
               ],
             ),
             const SizedBox(height: 10),
-
-            // Horizontal Pill Badges for Wind, Rain, Cloud metrics
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [

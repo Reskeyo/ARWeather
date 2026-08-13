@@ -1,22 +1,13 @@
-/// Data model representing current weather conditions.
+/// Data model representing current weather conditions at a specific location.
 class WeatherData {
-  /// Temperature in degrees Celsius.
   final double temperature;
-
-  /// Cloud cover percentage (0-100).
   final double cloudCover;
-
-  /// Wind direction in degrees (0 = North, 90 = East, etc.).
   final double windDirection;
-
-  /// Wind speed in km/h.
   final double windSpeed;
-
-  /// Rainfall in mm.
   final double rain;
-
-  /// WMO Weather interpretation code.
   final int weatherCode;
+  final double latitude;
+  final double longitude;
 
   const WeatherData({
     required this.temperature,
@@ -25,10 +16,15 @@ class WeatherData {
     required this.windSpeed,
     required this.rain,
     required this.weatherCode,
+    this.latitude = 0.0,
+    this.longitude = 0.0,
   });
 
-  /// Creates a [WeatherData] instance from the Open-Meteo JSON response.
-  factory WeatherData.fromOpenMeteo(Map<String, dynamic> json) {
+  factory WeatherData.fromOpenMeteo(
+    Map<String, dynamic> json, {
+    double lat = 0.0,
+    double lon = 0.0,
+  }) {
     final current = json['current'] as Map<String, dynamic>;
     return WeatherData(
       temperature: (current['temperature_2m'] as num).toDouble(),
@@ -37,10 +33,11 @@ class WeatherData {
       windSpeed: (current['wind_speed_10m'] as num).toDouble(),
       rain: (current['rain'] as num?)?.toDouble() ?? 0.0,
       weatherCode: (current['weather_code'] as num).toInt(),
+      latitude: lat,
+      longitude: lon,
     );
   }
 
-  /// Returns a human-readable weather condition string based on WMO code.
   String get conditionText {
     if (weatherCode == 0) return 'Clear Sky';
     if (weatherCode <= 3) return 'Partly Cloudy';
@@ -54,7 +51,6 @@ class WeatherData {
     return 'Unknown';
   }
 
-  /// Returns the appropriate icon for the current weather.
   String get conditionIcon {
     if (weatherCode == 0) return '☀️';
     if (weatherCode <= 3) return '⛅';
@@ -68,10 +64,33 @@ class WeatherData {
     return '🌡️';
   }
 
-  /// Returns wind direction as a compass label (N, NE, E, etc.).
   String get windDirectionLabel {
     const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
     final index = ((windDirection + 22.5) % 360 / 45).floor();
     return directions[index];
   }
+}
+
+/// A spatial grid point holding localized weather data around the user.
+class WeatherGridPoint {
+  final double latitude;
+  final double longitude;
+  final WeatherData weather;
+
+  const WeatherGridPoint({
+    required this.latitude,
+    required this.longitude,
+    required this.weather,
+  });
+}
+
+/// Grid collection of weather points surrounding the user for spatial AR projection.
+class WeatherGridData {
+  final WeatherData centerWeather;
+  final List<WeatherGridPoint> gridPoints;
+
+  const WeatherGridData({
+    required this.centerWeather,
+    required this.gridPoints,
+  });
 }
