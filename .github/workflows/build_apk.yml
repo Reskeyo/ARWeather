@@ -55,7 +55,7 @@ jobs:
 
       # ── Build Release APK ─────────────────────────────────────
       - name: Build APK (release)
-        run: flutter build apk --release -v
+        run: flutter build apk --release
 
       # ── Locate and verify APK ─────────────────────────────────
       - name: Find APK
