@@ -57,6 +57,13 @@ jobs:
       - name: Build APK (release)
         run: flutter build apk --release
 
+      # ── Locate and verify APK ─────────────────────────────────
+      - name: Find APK
+        run: |
+          echo "=== Searching for APK ==="
+          find . -name "*.apk" -not -path "*/cache/*" 2>/dev/null || echo "No APK found"
+          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "flutter-apk dir not found"
+
       # ── Upload APK artifact ───────────────────────────────────
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
