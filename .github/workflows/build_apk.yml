@@ -24,10 +24,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # ── Flutter Setup ─────────────────────────────────────────
+      # ── Flutter Setup (pinned to 3.24.x — stable, AGP 8.x compatible) ─
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.24.5'
           channel: 'stable'
           cache: true
 
@@ -49,7 +50,7 @@ jobs:
 
       # ── Build Release APK ─────────────────────────────────────
       - name: Build APK (release)
-        run: flutter build apk --release --no-shrink
+        run: flutter build apk --release
 
       # ── Upload as workflow Artifact ───────────────────────────
       - name: Upload APK artifact
@@ -71,9 +72,9 @@ jobs:
           name: 'AR Weather ${{ steps.tag.outputs.tag }}'
           body: |
             🌤️ **AR Weather** — Automated Release Build
-            
+
             Built from commit `${{ github.sha }}`.
-            
+
             ### 📲 Installation
             1. Download `app-release.apk` below
             2. Transfer to your Android device
