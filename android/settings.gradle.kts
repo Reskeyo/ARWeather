@@ -1,7 +1,7 @@
 pluginManagement {
     val flutterSdkPath = run {
-        // On CI (GitHub Actions with subosito/flutter-action), FLUTTER_ROOT env var is set.
-        // Locally, flutter.sdk is read from local.properties.
+        // CI: FLUTTER_ROOT is set by subosito/flutter-action
+        // Local: read from local.properties
         val envFlutterRoot = System.getenv("FLUTTER_ROOT")
         if (envFlutterRoot != null) {
             envFlutterRoot
@@ -30,8 +30,8 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    id("com.android.application") version "8.1.0" apply false
-    id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+    id("com.android.application") version "8.7.3" apply false
+    id("org.jetbrains.kotlin.android") version "2.1.0" apply false
 }
 
 include(":app")
