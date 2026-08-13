@@ -23,7 +23,6 @@ final compassServiceProvider = Provider<CompassService>((ref) {
 
 // ─── Weather Data Providers ──────────────────────────────────────────────────
 
-/// Async provider fetching single-location weather data.
 final weatherDataProvider = FutureProvider.autoDispose<WeatherData>((ref) async {
   ref.watch(weatherRefreshProvider);
 
@@ -38,7 +37,6 @@ final weatherDataProvider = FutureProvider.autoDispose<WeatherData>((ref) async 
   );
 });
 
-/// Async provider fetching a spatial grid of 25 weather points around the user's GPS position.
 final weatherGridProvider = FutureProvider.autoDispose<WeatherGridData>((ref) async {
   ref.watch(weatherRefreshProvider);
 
@@ -53,28 +51,50 @@ final weatherGridProvider = FutureProvider.autoDispose<WeatherGridData>((ref) as
   );
 });
 
-/// Refresh trigger provider.
 final weatherRefreshProvider = StateProvider<int>((ref) => 0);
 
-// ─── Compass Heading Provider ────────────────────────────────────────────────
+// ─── Smooth Compass Heading Provider (Low-Pass Filter) ──────────────────────
 
-final compassHeadingProvider = StreamProvider<double>((ref) {
+/// Streams smoothed compass heading (0-360°) with Low-Pass filtering to eliminate jitter.
+final compassHeadingProvider = StreamProvider.autoDispose<double>((ref) {
   final compassService = ref.read(compassServiceProvider);
-  return compassService.headingStream;
+  double? lastHeading;
+
+  return compassService.headingStream.map((heading) {
+    if (lastHeading == null) {
+      lastHeading = heading;
+      return heading;
+    }
+
+    // Handle 0/360 degree wrap-around smoothing
+    double diff = heading - lastHeading!;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+
+    lastHeading = (lastHeading! + diff * 0.15 + 360) % 360;
+    return lastHeading!;
+  });
 });
 
-// ─── Device Pitch / Tilt Provider ───────────────────────────────────────────
+// ─── Smooth Device Pitch Provider (Low-Pass Filter) ─────────────────────────
 
-/// Streams the device's pitch (vertical tilt angle in degrees).
-///
-/// 0° = vertical/horizontal facing horizon.
-/// +45° = tilting phone up towards the sky.
-/// -45° = tilting phone down towards the ground.
+/// Streams smoothed device pitch angle (-90° to +90°) to prevent up/down jumping ("auf und ab buggen").
 final devicePitchProvider = StreamProvider.autoDispose<double>((ref) {
+  double? lastPitch;
+
   return accelerometerEventStream().map((event) {
     // Calculate pitch from accelerometer forces (x, y, z)
-    final pitchRad = atan2(event.z, sqrt(event.x * event.x + event.y * event.y));
-    return pitchRad * 180 / pi;
+    final rawPitchRad = atan2(event.z, sqrt(event.x * event.x + event.y * event.y));
+    final rawPitchDeg = rawPitchRad * 180 / pi;
+
+    if (lastPitch == null) {
+      lastPitch = rawPitchDeg;
+      return rawPitchDeg;
+    }
+
+    // Exponential Moving Average filter (alpha = 0.12 for silky smooth motion)
+    lastPitch = lastPitch! * 0.88 + rawPitchDeg * 0.12;
+    return lastPitch!;
   });
 });
 

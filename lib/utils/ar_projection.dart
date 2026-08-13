@@ -1,27 +1,13 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 
-/// Representation of a projected AR 3D point mapped to 2D screen coordinates.
 class ARProjectedPoint {
-  /// Screen X coordinate in logical pixels.
   final double x;
-
-  /// Screen Y coordinate in logical pixels.
   final double y;
-
-  /// Distance from user in meters.
   final double distanceMeters;
-
-  /// Compass bearing from user to target (0 - 360°).
   final double bearingDegrees;
-
-  /// Whether the point is currently within the camera screen bounds.
   final bool isVisible;
-
-  /// Scale factor based on distance (1.0 = close, 0.2 = far).
   final double scale;
-
-  /// Opacity factor based on distance & fog.
   final double opacity;
 
   const ARProjectedPoint({
@@ -35,13 +21,11 @@ class ARProjectedPoint {
   });
 }
 
-/// Utility for calculating geographical distances, bearings, and 3D-to-2D AR projections.
 class ARProjection {
   static const double earthRadiusMeters = 6371000.0;
   static const double defaultHorizontalFov = 65.0; // degrees
-  static const double defaultVerticalFov = 85.0; // degrees
+  static const double defaultVerticalFov = 75.0; // degrees
 
-  /// Calculates Haversine distance in meters between two lat/lon points.
   static double distanceBetween(
     double lat1,
     double lon1,
@@ -61,7 +45,6 @@ class ARProjection {
     return earthRadiusMeters * c;
   }
 
-  /// Calculates initial compass bearing in degrees (0-360) from point 1 to point 2.
   static double bearingTo(
     double lat1,
     double lon1,
@@ -79,18 +62,17 @@ class ARProjection {
     return (_toDegrees(bearingRad) + 360) % 360;
   }
 
-  /// Projects a target GPS coordinate + altitude onto the 2D screen coordinate space
-  /// given the device heading (azimuth) and pitch (tilt).
+  /// Projects a target GPS point into 2D screen space with smooth horizon sky anchoring.
   static ARProjectedPoint projectToScreen({
     required double userLat,
     required double userLon,
     required double targetLat,
     required double targetLon,
-    double targetAltitudeMeters = 1200.0, // Average cloud base height
-    required double deviceHeading, // 0-360° (0=N, 90=E)
-    required double devicePitch, // -90 to +90° (0=horizontal, +45=looking up at sky)
+    double targetAltitudeMeters = 1600.0,
+    required double deviceHeading,
+    required double devicePitch,
     required Size screenSize,
-    double maxDistanceMeters = 15000.0, // 15 km radar range
+    double maxDistanceMeters = 15000.0,
     double hFov = defaultHorizontalFov,
     double vFov = defaultVerticalFov,
   }) {
@@ -100,29 +82,24 @@ class ARProjection {
     // Relative horizontal angle (-180° to +180°)
     double relBearing = (bearing - deviceHeading + 540) % 360 - 180;
 
-    // Elevation angle of cloud in the sky (degrees)
-    final elevationAngle =
-        _toDegrees(atan2(targetAltitudeMeters, max(100.0, distance)));
+    // Horizon Y calculation
+    final horizonY = (screenSize.height / 2) + (devicePitch / (vFov / 2)) * (screenSize.height / 2);
 
-    // Relative vertical pitch angle (-90° to +90°)
-    final relPitch = elevationAngle - devicePitch;
+    // Cloud elevation above horizon
+    final elevationAngle = _toDegrees(atan2(targetAltitudeMeters, max(200.0, distance)));
+    final screenX = (screenSize.width / 2) + (relBearing / (hFov / 2)) * (screenSize.width / 2);
 
-    // Map angles to screen X and Y coordinates
-    final screenX =
-        (screenSize.width / 2) + (relBearing / (hFov / 2)) * (screenSize.width / 2);
-    final screenY =
-        (screenSize.height / 2) - (relPitch / (vFov / 2)) * (screenSize.height / 2);
+    // Position clouds gracefully in the sky band above horizon
+    final screenY = horizonY - (elevationAngle / (vFov / 2)) * (screenSize.height * 0.4);
 
-    // Check if within visible screen bounds (with margin)
-    final isVisible = screenX >= -200 &&
-        screenX <= screenSize.width + 200 &&
-        screenY >= -200 &&
-        screenY <= screenSize.height + 200;
+    final isVisible = screenX >= -250 &&
+        screenX <= screenSize.width + 250 &&
+        screenY >= -300 &&
+        screenY <= screenSize.height + 300;
 
-    // Distance scale (nearer = larger, further = smaller)
     final distRatio = (distance / maxDistanceMeters).clamp(0.0, 1.0);
-    final scale = (1.2 - distRatio * 0.85).clamp(0.25, 1.2);
-    final opacity = (1.0 - distRatio * 0.65).clamp(0.25, 0.95);
+    final scale = (1.1 - distRatio * 0.7).clamp(0.3, 1.1);
+    final opacity = (1.0 - distRatio * 0.55).clamp(0.3, 0.95);
 
     return ARProjectedPoint(
       x: screenX,

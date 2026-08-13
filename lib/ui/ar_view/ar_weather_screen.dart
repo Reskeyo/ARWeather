@@ -10,14 +10,13 @@ import '../widgets/wind_direction_indicator.dart';
 import 'camera_layer.dart';
 import 'weather_overlay.dart';
 
-/// Fallback spatial grid generated around default coordinates for initial load / demo state.
 List<WeatherGridPoint> _generateFallbackGrid(double userLat, double userLon) {
   final List<WeatherGridPoint> points = [];
   const offsets = [-0.04, -0.02, 0.0, 0.02, 0.04];
 
   for (final dx in offsets) {
     for (final dy in offsets) {
-      if (dx == 0.0 && dy == 0.0) continue; // skip center
+      if (dx == 0.0 && dy == 0.0) continue;
       final lat = userLat + dx;
       final lon = userLon + dy;
       points.add(WeatherGridPoint(
@@ -40,8 +39,6 @@ List<WeatherGridPoint> _generateFallbackGrid(double userLat, double userLon) {
   return points;
 }
 
-/// The main AR Weather screen — composites live camera feed, True AR spatial 3D weather radar,
-/// and compact glassmorphism UI overlays into a real-time experience.
 class ARWeatherScreen extends ConsumerStatefulWidget {
   const ARWeatherScreen({super.key});
 
@@ -55,7 +52,6 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
   @override
   void initState() {
     super.initState();
-    // Refresh weather grid every 5 minutes
     _refreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       ref.read(weatherRefreshProvider.notifier).state++;
     });
@@ -74,7 +70,6 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
     final devicePitch = ref.watch(devicePitchProvider).valueOrNull ?? 0.0;
     final windAngle = ref.watch(windRelativeAngleProvider);
 
-    // Extract center weather & spatial grid points
     final gridData = weatherGridAsync.valueOrNull;
     final centerWeather = gridData?.centerWeather ??
         const WeatherData(
@@ -99,25 +94,24 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
           // ── Layer 1: Live Camera Feed ──
           const CameraLayer(),
 
-          // ── Layer 2: True AR Spatial Weather Overlay ──
+          // ── Layer 2: True AR Spatial Weather Overlay with Wind Streams ──
           WeatherOverlay(
             userLat: userLat,
             userLon: userLon,
             gridPoints: gridPoints,
             heading: compassHeading,
             pitch: devicePitch,
+            centerWeather: centerWeather,
           ),
 
-          // ── Layer 3: Glassmorphism UI Controls & Overlay ──
+          // ── Layer 3: Glassmorphism UI Controls ──
           SafeArea(
             child: Column(
               children: [
-                // Top Bar with Compass Heading & Wind Compass
                 _buildTopBar(compassHeading, windAngle, centerWeather),
 
                 const Spacer(),
 
-                // Bottom Floating Glass Weather Bar
                 _buildCompactBottomBar(centerWeather, weatherGridAsync.isLoading),
               ],
             ),
@@ -174,7 +168,6 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
             ),
           ),
 
-          // Wind direction compass indicator
           WindDirectionIndicator(
             relativeWindAngle: windAngle,
             speedLabel: '${weather.windSpeed.round()} km/h',

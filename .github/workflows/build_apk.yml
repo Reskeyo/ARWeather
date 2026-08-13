@@ -1,4 +1,4 @@
-name: Build & Release APK
+name: Build & Release Fast Debug APK
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Release APK
+    name: Build Fast Debug APK
     runs-on: ubuntu-latest
 
     steps:
@@ -24,7 +24,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # ── Flutter Setup (pinned — tested compatible version) ─────
+      # ── Flutter Setup (pinned version with cache) ─────────────
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -32,11 +32,7 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Flutter version info
-        run: flutter --version
-
       # ── Write local.properties ────────────────────────────────
-      # Required by Flutter Gradle plugin and plugin subprojects.
       - name: Write android/local.properties
         run: |
           cat > android/local.properties << EOF
@@ -53,45 +49,37 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
-      # ── Build Release APK ─────────────────────────────────────
-      - name: Build APK (release)
-        run: flutter build apk --release
-
-      # ── Locate and verify APK ─────────────────────────────────
-      - name: Find APK
-        run: |
-          echo "=== Searching for APK ==="
-          find . -name "*.apk" -not -path "*/cache/*" 2>/dev/null || echo "No APK found"
-          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "flutter-apk dir not found"
+      # ── Build Fast Debug APK ──────────────────────────────────
+      - name: Build APK (debug)
+        run: flutter build apk --debug
 
       # ── Upload APK artifact ───────────────────────────────────
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ar-weather-release
-          path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 30
+          name: ar-weather-debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7
 
       # ── Create GitHub Release ─────────────────────────────────
       - name: Generate release tag
         id: tag
         run: echo "tag=v$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
+      # ── Create GitHub Release ─────────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: 'AR Weather ${{ steps.tag.outputs.tag }}'
+          name: 'AR Weather Fast Debug ${{ steps.tag.outputs.tag }}'
           body: |
-            🌤️ **AR Weather** — Automated Release Build
+            ⚡ **AR Weather (Fast Debug Build)**
 
             Built from commit `${{ github.sha }}`.
 
-            ### 📲 Installation
-            1. Download `app-release.apk` below
-            2. Transfer to your Android device
-            3. Enable "Install from unknown sources" in Android settings
-            4. Install the APK
-          files: build/app/outputs/flutter-apk/app-release.apk
+            ### 📲 Fast Installation
+            1. Download `app-debug.apk` below
+            2. Install on Android device
+          files: build/app/outputs/flutter-apk/app-debug.apk
           draft: false
-          prerelease: false
+          prerelease: true
