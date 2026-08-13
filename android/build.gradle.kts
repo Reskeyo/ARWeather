@@ -1,17 +1,6 @@
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
+// Top-level build.gradle.kts — repositories are declared in settings.gradle.kts
+// for Flutter 3.22+ compatibility (allprojects block is deprecated).
 
-val newBuildDir: Directory = rootProject.layout.buildDirectory.dir("../../build").get()
-rootProject.layout.buildDirectory.value(newBuildDir)
-
-subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
-}
 subprojects {
     project.evaluationDependsOn(":app")
 }
