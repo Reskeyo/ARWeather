@@ -33,5 +33,11 @@ dev_dependencies:
   build_runner: ^2.4.9
   riverpod_generator: ^2.4.0
 
+# Pin geolocator_android to 4.6.1 — 4.6.2 has a known Gradle build bug
+# where its build.gradle accesses `flutter.compileSdkVersion` which is
+# unavailable in plugin subprojects, causing build failures on CI.
+dependency_overrides:
+  geolocator_android: 4.6.1
+
 flutter:
   uses-material-design: true
