@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/weather_data.dart';
 
-/// Displays the primary weather information in a sleek header layout.
-///
-/// Shows the large temperature reading, condition icon, and description text.
+/// Compact weather header for the AR overlay UI.
 class WeatherHeader extends StatelessWidget {
   final WeatherData weather;
 
@@ -11,38 +9,43 @@ class WeatherHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Row(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Condition icon (emoji)
+        // Condition Icon
         Text(
           weather.conditionIcon,
-          style: const TextStyle(fontSize: 52),
+          style: const TextStyle(fontSize: 36),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(width: 10),
 
-        // Temperature
-        Text(
-          '${weather.temperature.round()}°',
-          style: const TextStyle(
-            fontSize: 72,
-            fontWeight: FontWeight.w200,
-            color: Colors.white,
-            letterSpacing: -2,
-            height: 1.0,
-          ),
-        ),
-        const SizedBox(height: 4),
-
-        // Condition text
-        Text(
-          weather.conditionText,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w400,
-            color: Colors.white.withOpacity(0.85),
-            letterSpacing: 1.2,
-          ),
+        // Temperature & Condition Text
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${weather.temperature.round()}°C',
+              style: const TextStyle(
+                fontSize: 34,
+                fontWeight: FontWeight.w300,
+                color: Colors.white,
+                letterSpacing: -0.5,
+                height: 1.0,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              weather.conditionText,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Colors.white.withOpacity(0.85),
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
         ),
       ],
     );

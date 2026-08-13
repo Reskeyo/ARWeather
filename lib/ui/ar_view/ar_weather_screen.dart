@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../models/weather_data.dart';
 import '../../providers/weather_providers.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/weather_header.dart';
@@ -9,8 +10,19 @@ import '../widgets/wind_direction_indicator.dart';
 import 'camera_layer.dart';
 import 'weather_overlay.dart';
 
-/// The main AR Weather screen — layers the camera feed, weather particle
-/// effects, and glassmorphism UI overlays into a single immersive view.
+/// Fallback demo weather used during initial load or if GPS/API is unavailable,
+/// ensuring AR 3D particle effects and UI are ALWAYS active instantly.
+const _defaultWeather = WeatherData(
+  temperature: 21.0,
+  cloudCover: 55.0,
+  windDirection: 225.0,
+  windSpeed: 16.0,
+  rain: 0.0,
+  weatherCode: 2, // Partly Cloudy
+);
+
+/// The main AR Weather screen — composites the camera feed, 3D weather particle
+/// overlay, and compact glassmorphism UI overlays into an immersive AR view.
 class ARWeatherScreen extends ConsumerStatefulWidget {
   const ARWeatherScreen({super.key});
 
@@ -42,38 +54,37 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
     final windAngle = ref.watch(windRelativeAngleProvider);
     final compassHeading = ref.watch(compassHeadingProvider);
 
+    // Active weather model (uses fetched data or fallback demo weather)
+    final weather = weatherAsync.valueOrNull ?? _defaultWeather;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // ── Layer 1: Camera Feed ──
+          // ── Layer 1: Live Camera Feed ──
           const CameraLayer(),
 
-          // ── Layer 2: Weather Particle Effects ──
-          weatherAsync.when(
-            data: (weather) => WeatherOverlay(
-              cloudCover: weather.cloudCover,
-              rain: weather.rain,
-              weatherCode: weather.weatherCode,
-              windAngle: windAngle,
-              windSpeed: weather.windSpeed,
-            ),
-            loading: () => const SizedBox.shrink(),
-            error: (_, __) => const SizedBox.shrink(),
+          // ── Layer 2: 3D AR Weather Particle Overlay (ALWAYS ACTIVE) ──
+          WeatherOverlay(
+            cloudCover: weather.cloudCover,
+            rain: weather.rain,
+            weatherCode: weather.weatherCode,
+            windAngle: windAngle,
+            windSpeed: weather.windSpeed,
           ),
 
-          // ── Layer 3: UI Overlays ──
+          // ── Layer 3: Glassmorphism UI Overlay ──
           SafeArea(
             child: Column(
               children: [
-                // Top bar with compass & wind direction
-                _buildTopBar(windAngle, compassHeading, weatherAsync),
+                // Compact Top Bar with Compass & Wind Direction
+                _buildTopBar(windAngle, compassHeading, weather),
 
                 const Spacer(),
 
-                // Bottom weather card
-                _buildWeatherCard(weatherAsync),
+                // Compact Floating Bottom Glass Weather Bar (~15% height)
+                _buildCompactBottomBar(weather, weatherAsync.isLoading),
               ],
             ),
           ),
@@ -82,182 +93,126 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
     );
   }
 
-  /// Builds the top navigation bar with compass and wind indicator.
+  /// Builds the top navigation bar with compass heading and wind compass.
   Widget _buildTopBar(
     double windAngle,
     AsyncValue<double> compassHeading,
-    AsyncValue weatherAsync,
+    WeatherData weather,
   ) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // App title
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'AR Weather',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                  letterSpacing: 0.5,
+          // Title & Compass Heading
+          GlassCard(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            borderRadius: 16,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.explore_outlined,
+                  color: Color(0xFF818CF8),
+                  size: 18,
                 ),
-              ),
-              Text(
-                compassHeading.when(
-                  data: (h) => 'Heading: ${h.round()}°',
-                  loading: () => 'Calibrating…',
-                  error: (_, __) => 'Compass N/A',
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'AR Weather',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Text(
+                      compassHeading.when(
+                        data: (h) => '${h.round()}° ${weather.windDirectionLabel}',
+                        loading: () => 'Calibrating…',
+                        error: (_, __) => 'Heading N/A',
+                      ),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.white.withOpacity(0.6),
+                      ),
+                    ),
+                  ],
                 ),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white.withOpacity(0.5),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
 
-          // Wind compass indicator
-          weatherAsync.when(
-            data: (weather) => WindDirectionIndicator(
-              relativeWindAngle: windAngle,
-              speedLabel: '${weather.windSpeed.round()} km/h',
-              directionLabel: weather.windDirectionLabel,
-            ),
-            loading: () => const SizedBox(width: 100, height: 100),
-            error: (_, __) => const SizedBox(width: 100, height: 100),
+          // Wind direction compass widget
+          WindDirectionIndicator(
+            relativeWindAngle: windAngle,
+            speedLabel: '${weather.windSpeed.round()} km/h',
+            directionLabel: weather.windDirectionLabel,
           ),
         ],
       ),
     );
   }
 
-  /// Builds the main weather info card at the bottom of the screen.
-  Widget _buildWeatherCard(AsyncValue weatherAsync) {
+  /// Builds a super compact, non-intrusive bottom weather glass bar.
+  Widget _buildCompactBottomBar(WeatherData weather, bool isLoading) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      child: weatherAsync.when(
-        data: (weather) => GlassCard(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Weather header (temp, icon, condition)
-              WeatherHeader(weather: weather),
-              const SizedBox(height: 24),
+      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 12),
+      child: GlassCard(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        borderRadius: 22,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                // Temperature & Condition
+                Expanded(
+                  child: WeatherHeader(weather: weather),
+                ),
 
-              // Divider
-              Container(
-                height: 1,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.white.withOpacity(0),
-                      Colors.white.withOpacity(0.2),
-                      Colors.white.withOpacity(0),
-                    ],
+                // Refreshing spinner indicator if active
+                if (isLoading)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF818CF8),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 20),
+              ],
+            ),
+            const SizedBox(height: 10),
 
-              // Metric badges row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  MetricBadge(
-                    icon: Icons.air,
-                    value: '${weather.windSpeed.round()}',
-                    label: 'km/h',
-                    iconColor: const Color(0xFF6C63FF),
-                  ),
-                  MetricBadge(
-                    icon: Icons.water_drop_outlined,
-                    value: '${weather.rain}',
-                    label: 'mm',
-                    iconColor: const Color(0xFF4FC3F7),
-                  ),
-                  MetricBadge(
-                    icon: Icons.cloud_outlined,
-                    value: '${weather.cloudCover.round()}%',
-                    label: 'Clouds',
-                    iconColor: Colors.white70,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-
-        // Loading state
-        loading: () => GlassCard(
-          padding: const EdgeInsets.all(40),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(
-                color: Color(0xFF6C63FF),
-                strokeWidth: 2,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Fetching weather data…',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
-                  fontSize: 14,
+            // Horizontal Pill Badges for Wind, Rain, Cloud metrics
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                MetricBadge(
+                  icon: Icons.air,
+                  value: '${weather.windSpeed.round()}',
+                  label: 'km/h',
+                  iconColor: const Color(0xFF818CF8),
                 ),
-              ),
-            ],
-          ),
-        ),
-
-        // Error state
-        error: (error, _) => GlassCard(
-          backgroundOpacity: 0.2,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.error_outline,
-                color: Colors.redAccent.withOpacity(0.8),
-                size: 36,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Could not load weather',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                MetricBadge(
+                  icon: Icons.water_drop_outlined,
+                  value: '${weather.rain}',
+                  label: 'mm',
+                  iconColor: const Color(0xFF38BDF8),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                error.toString(),
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.4),
-                  fontSize: 12,
+                MetricBadge(
+                  icon: Icons.cloud_outlined,
+                  value: '${weather.cloudCover.round()}%',
+                  label: 'Clouds',
+                  iconColor: Colors.white70,
                 ),
-                textAlign: TextAlign.center,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 16),
-              TextButton.icon(
-                onPressed: () {
-                  ref.read(weatherRefreshProvider.notifier).state++;
-                },
-                icon: const Icon(Icons.refresh, size: 18),
-                label: const Text('Retry'),
-                style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF6C63FF),
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ),
       ),
     );
