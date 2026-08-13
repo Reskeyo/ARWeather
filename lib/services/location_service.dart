@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 
 /// Service for obtaining the device's GPS location.
@@ -31,12 +30,10 @@ class LocationService {
       );
     }
 
-    // Get current position with medium accuracy (good balance for weather)
+    // Get current position with medium accuracy (good balance for weather).
+    // geolocator 12.x: desiredAccuracy is a direct parameter.
     return await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.medium,
-        timeLimit: Duration(seconds: 15),
-      ),
+      desiredAccuracy: LocationAccuracy.medium,
     );
   }
 }
