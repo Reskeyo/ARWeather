@@ -6,8 +6,8 @@ plugins {
 
 android {
     namespace = "com.arweather.ar_weather"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    compileSdk = 35
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -20,11 +20,10 @@ android {
 
     defaultConfig {
         applicationId = "com.arweather.ar_weather"
-        // minSdk 21 = Android 5.0 Lollipop (geolocator & camera require >= 21)
         minSdk = 21
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0.0"
     }
 
     buildTypes {
