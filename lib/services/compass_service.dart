@@ -1,22 +1,17 @@
 import 'dart:async';
 import 'package:flutter_compass/flutter_compass.dart';
 
-/// Service for reading compass heading data.
-///
-/// Streams the device's heading in degrees (0-360°, magnetic north).
+/// Service for reading compass heading data calibrated for AR camera mode.
 class CompassService {
-  StreamSubscription<CompassEvent>? _subscription;
-
-  /// Returns a broadcast stream of compass headings in degrees.
-  ///
-  /// Each event is the heading in degrees from magnetic north.
+  /// Returns a broadcast stream of compass headings in degrees (0-360°).
   Stream<double> get headingStream {
-    return FlutterCompass.events?.map((event) => event.heading ?? 0.0) ??
-        const Stream.empty();
-  }
+    final stream = FlutterCompass.events;
+    if (stream == null) return const Stream.empty();
 
-  /// Cleans up the compass subscription.
-  void dispose() {
-    _subscription?.cancel();
+    return stream.map((event) {
+      // Prefer headingForCameraMode when available (calibrated for upright AR viewing)
+      final raw = event.headingForCameraMode ?? event.heading ?? 0.0;
+      return (raw % 360 + 360) % 360;
+    });
   }
 }

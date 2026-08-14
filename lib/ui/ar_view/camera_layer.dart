@@ -1,11 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 /// Widget that displays the device's camera feed as a full-screen background.
 ///
-/// Prompts for Camera & Location permissions simultaneously and handles
-/// seamless app pause/resume lifecycle transitions without hanging.
+/// Features robust lifecycle management for instant pause/resume without hanging,
+/// and simultaneous permission prompts.
 class CameraLayer extends StatefulWidget {
   const CameraLayer({super.key});
 
@@ -18,46 +19,74 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
   bool _isInitialized = false;
   bool _permissionDenied = false;
   String? _errorMessage;
-  bool _isInitializing = false;
+  bool _inProgress = false;
+  Timer? _timeoutTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _checkPermissionsAndStart();
+    _initializeAll();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
-    _controller = null;
+    _timeoutTimer?.cancel();
+    _disposeCamera();
     super.dispose();
+  }
+
+  Future<void> _disposeCamera() async {
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      try {
+        await controller.dispose();
+      } catch (_) {}
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final controller = _controller;
-    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
-      _isInitialized = false;
-      controller?.dispose();
-      _controller = null;
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      // Pause camera and release hardware lock
+      if (mounted) {
+        setState(() => _isInitialized = false);
+      }
+      _disposeCamera();
     } else if (state == AppLifecycleState.resumed) {
-      _checkPermissionsAndStart();
+      // Small delay allows the Android Activity window to fully regain focus
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (mounted) {
+          _initializeAll();
+        }
+      });
     }
   }
 
-  /// Requests Camera and Location permissions simultaneously.
-  Future<void> _checkPermissionsAndStart() async {
-    if (_isInitializing) return;
-    _isInitializing = true;
+  Future<void> _initializeAll() async {
+    if (_inProgress) return;
+    _inProgress = true;
+
+    // Safety timeout: reset if hanging longer than 5 seconds
+    _timeoutTimer?.cancel();
+    _timeoutTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted && !_isInitialized) {
+        setState(() {
+          _inProgress = false;
+          _errorMessage = 'Camera took too long to respond. Tap to retry.';
+        });
+      }
+    });
 
     try {
-      final cameraGranted = await Permission.camera.isGranted;
-      final locationGranted = await Permission.locationWhenInUse.isGranted;
+      final cameraStatus = await Permission.camera.status;
+      final locationStatus = await Permission.locationWhenInUse.status;
 
-      if (!cameraGranted || !locationGranted) {
-        // Batch request both permissions at the same time
+      if (!cameraStatus.isGranted || !locationStatus.isGranted) {
         final statuses = await [
           Permission.camera,
           Permission.locationWhenInUse,
@@ -68,7 +97,7 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
           if (mounted) {
             setState(() {
               _permissionDenied = true;
-              _isInitializing = false;
+              _inProgress = false;
             });
           }
           return;
@@ -79,49 +108,50 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
         setState(() => _permissionDenied = false);
       }
 
-      await _initCamera();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _errorMessage = 'Camera setup error: $e');
-      }
-    } finally {
-      _isInitializing = false;
-    }
-  }
-
-  /// Initializes the camera controller with the back camera.
-  Future<void> _initCamera() async {
-    try {
-      final cameras = await availableCameras();
-      if (cameras.isEmpty) {
-        if (mounted) setState(() => _errorMessage = 'No camera device found');
-        return;
-      }
-
-      final backCamera = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.back,
-        orElse: () => cameras.first,
-      );
-
-      final controller = CameraController(
-        backCamera,
-        ResolutionPreset.high,
-        enableAudio: false,
-      );
-
-      _controller = controller;
-      await controller.initialize();
-
-      if (!mounted) return;
-      setState(() {
-        _isInitialized = true;
-        _errorMessage = null;
-      });
+      await _setupCameraController();
     } catch (e) {
       if (mounted) {
         setState(() => _errorMessage = 'Camera initialization failed: $e');
       }
+    } finally {
+      _timeoutTimer?.cancel();
+      _inProgress = false;
     }
+  }
+
+  Future<void> _setupCameraController() async {
+    await _disposeCamera();
+
+    final cameras = await availableCameras();
+    if (cameras.isEmpty) {
+      if (mounted) setState(() => _errorMessage = 'No camera found on device');
+      return;
+    }
+
+    final backCamera = cameras.firstWhere(
+      (c) => c.lensDirection == CameraLensDirection.back,
+      orElse: () => cameras.first,
+    );
+
+    final controller = CameraController(
+      backCamera,
+      ResolutionPreset.high,
+      enableAudio: false,
+      imageFormatGroup: ImageFormatGroup.jpeg,
+    );
+
+    await controller.initialize();
+
+    if (!mounted) {
+      await controller.dispose();
+      return;
+    }
+
+    setState(() {
+      _controller = controller;
+      _isInitialized = true;
+      _errorMessage = null;
+    });
   }
 
   @override
@@ -208,7 +238,7 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
                   if (status.isPermanentlyDenied) {
                     await openAppSettings();
                   } else {
-                    await _checkPermissionsAndStart();
+                    await _initializeAll();
                   }
                 },
                 icon: const Icon(Icons.check_circle_outline),
@@ -236,21 +266,32 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
   Widget _buildLoading() {
     return Container(
       color: const Color(0xFF0F172A),
-      child: const Center(
+      child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(
+            const CircularProgressIndicator(
               color: Color(0xFF818CF8),
               strokeWidth: 2.5,
             ),
-            SizedBox(height: 16),
-            Text(
+            const SizedBox(height: 16),
+            const Text(
               'Starting AR Camera…',
               style: TextStyle(
-                color: Colors.white60,
+                color: Colors.white70,
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: _initializeAll,
+              child: Text(
+                'Taking too long? Tap to reload',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.4),
+                  fontSize: 12,
+                ),
               ),
             ),
           ],
@@ -269,34 +310,40 @@ class _CameraLayerState extends State<CameraLayer> with WidgetsBindingObserver {
         ),
       ),
       child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.videocam_off_outlined,
-              size: 48,
-              color: Colors.white.withOpacity(0.4),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              error,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.6),
-                fontSize: 13,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.videocam_off_outlined,
+                size: 48,
+                color: Colors.white.withOpacity(0.4),
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-            OutlinedButton.icon(
-              onPressed: _checkPermissionsAndStart,
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('Retry Camera'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: BorderSide(color: Colors.white.withOpacity(0.3)),
+              const SizedBox(height: 12),
+              Text(
+                error,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 14,
+                ),
+                textAlign: TextAlign.center,
               ),
-            ),
-          ],
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: () {
+                  setState(() => _errorMessage = null);
+                  _initializeAll();
+                },
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Restart Camera'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF6366F1),
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

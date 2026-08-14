@@ -53,48 +53,60 @@ final weatherGridProvider = FutureProvider.autoDispose<WeatherGridData>((ref) as
 
 final weatherRefreshProvider = StateProvider<int>((ref) => 0);
 
-// ─── Smooth Compass Heading Provider (Low-Pass Filter) ──────────────────────
+// ─── Rock-Solid Smooth Compass Heading Provider ─────────────────────────────
 
-/// Streams smoothed compass heading (0-360°) with Low-Pass filtering to eliminate jitter.
+/// Streams filtered, jitter-free compass heading (0-360°).
 final compassHeadingProvider = StreamProvider.autoDispose<double>((ref) {
   final compassService = ref.read(compassServiceProvider);
-  double? lastHeading;
+  double? currentHeading;
 
-  return compassService.headingStream.map((heading) {
-    if (lastHeading == null) {
-      lastHeading = heading;
-      return heading;
+  return compassService.headingStream.map((targetHeading) {
+    if (currentHeading == null) {
+      currentHeading = targetHeading;
+      return targetHeading;
     }
 
-    // Handle 0/360 degree wrap-around smoothing
-    double diff = heading - lastHeading!;
+    double diff = targetHeading - currentHeading!;
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
 
-    lastHeading = (lastHeading! + diff * 0.15 + 360) % 360;
-    return lastHeading!;
+    // Ignore tiny micro-jitter (< 0.25°)
+    if (diff.abs() < 0.25) {
+      return currentHeading!;
+    }
+
+    // Smooth filter (alpha = 0.10)
+    currentHeading = (currentHeading! + diff * 0.10 + 360) % 360;
+    return currentHeading!;
   });
 });
 
-// ─── Smooth Device Pitch Provider (Low-Pass Filter) ─────────────────────────
+// ─── Rock-Solid Smooth Device Pitch Provider ────────────────────────────────
 
-/// Streams smoothed device pitch angle (-90° to +90°) to prevent up/down jumping ("auf und ab buggen").
+/// Streams smooth, stabilized pitch angle (-90° to +90°) for stable AR horizon anchoring.
 final devicePitchProvider = StreamProvider.autoDispose<double>((ref) {
-  double? lastPitch;
+  double? currentPitch;
 
   return accelerometerEventStream().map((event) {
-    // Calculate pitch from accelerometer forces (x, y, z)
+    // When held vertically: Y is gravity down, Z is out of screen
     final rawPitchRad = atan2(event.z, sqrt(event.x * event.x + event.y * event.y));
-    final rawPitchDeg = rawPitchRad * 180 / pi;
+    final rawPitchDeg = (rawPitchRad * 180 / pi).clamp(-85.0, 85.0);
 
-    if (lastPitch == null) {
-      lastPitch = rawPitchDeg;
+    if (currentPitch == null) {
+      currentPitch = rawPitchDeg;
       return rawPitchDeg;
     }
 
-    // Exponential Moving Average filter (alpha = 0.12 for silky smooth motion)
-    lastPitch = lastPitch! * 0.88 + rawPitchDeg * 0.12;
-    return lastPitch!;
+    final diff = rawPitchDeg - currentPitch!;
+
+    // Ignore tiny micro-accelerometer tremors (< 0.2°)
+    if (diff.abs() < 0.2) {
+      return currentPitch!;
+    }
+
+    // Heavy low-pass filter (alpha = 0.08) for cinematic, jitter-free horizon
+    currentPitch = currentPitch! * 0.92 + rawPitchDeg * 0.08;
+    return currentPitch!;
   });
 });
 
