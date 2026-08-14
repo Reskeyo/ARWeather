@@ -88,18 +88,18 @@ class _WeatherOverlayState extends State<WeatherOverlay>
   }
 
   void _initParticles(Size size) {
-    if (_initialized || size.width == 0) return;
+    if (_initialized || size.width <= 0) return;
     _initialized = true;
 
     _windParticles.clear();
-    for (int i = 0; i < 40; i++) {
+    for (int i = 0; i < 35; i++) {
       _windParticles.add(_WindParticle(
         x: _random.nextDouble() * size.width,
         y: _random.nextDouble() * size.height * 0.75,
         z: 0.3 + _random.nextDouble() * 0.7,
-        length: 45 + _random.nextDouble() * 90,
-        speed: 2.0 + _random.nextDouble() * 5.0,
-        opacity: 0.4 + _random.nextDouble() * 0.5,
+        length: 45 + _random.nextDouble() * 85,
+        speed: 2.0 + _random.nextDouble() * 4.5,
+        opacity: 0.45 + _random.nextDouble() * 0.45,
       ));
     }
 
@@ -127,8 +127,8 @@ class _WeatherOverlayState extends State<WeatherOverlay>
             userLat: widget.userLat,
             userLon: widget.userLon,
             gridPoints: widget.gridPoints,
-            heading: widget.heading,
-            pitch: widget.pitch,
+            heading: widget.heading.isNaN ? 0.0 : widget.heading,
+            pitch: widget.pitch.isNaN ? 0.0 : widget.pitch,
             centerWeather: widget.centerWeather,
             windParticles: _windParticles,
             snowParticles: _snowParticles,
@@ -169,16 +169,21 @@ class _ARSpatialWeatherPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     onInit(size);
-    if (size.width == 0 || size.height == 0) return;
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final safePitch = pitch.isFinite ? pitch.clamp(-60.0, 60.0) : 0.0;
+    final safeHeading = heading.isFinite ? heading : 0.0;
 
     // Horizon line position
-    final horizonY = (size.height / 2) + (pitch / 37.5) * (size.height / 2);
+    final horizonY = (size.height / 2) + (safePitch / 37.5) * (size.height / 2);
 
     // 1. Draw 3D AR Horizon Compass Scale & Cardinal Markers (N, E, S, W)
-    _drawARHorizonCompass(canvas, size, horizonY);
+    if (horizonY.isFinite) {
+      _drawARHorizonCompass(canvas, size, horizonY, safeHeading);
+    }
 
     // 2. Draw 3D Wind Direction Stream Ribbons & Vector Arrow
-    _drawARWindStreamsAndPointer(canvas, size, horizonY);
+    _drawARWindStreamsAndPointer(canvas, size, horizonY.isFinite ? horizonY : size.height / 2, safeHeading);
 
     // 3. Project & draw spatial weather elements (Clouds, Rain shafts, Waypoint pins)
     for (final point in gridPoints) {
@@ -188,8 +193,8 @@ class _ARSpatialWeatherPainter extends CustomPainter {
         targetLat: point.latitude,
         targetLon: point.longitude,
         targetAltitudeMeters: 1400.0,
-        deviceHeading: heading,
-        devicePitch: pitch,
+        deviceHeading: safeHeading,
+        devicePitch: safePitch,
         screenSize: size,
         maxDistanceMeters: 14000.0,
       );
@@ -206,17 +211,16 @@ class _ARSpatialWeatherPainter extends CustomPainter {
   }
 
   /// Draws a spatial AR Compass HUD fixed along the horizon line (N, NE, E, SE, S, SW, W, NW).
-  void _drawARHorizonCompass(Canvas canvas, Size size, double horizonY) {
+  void _drawARHorizonCompass(Canvas canvas, Size size, double horizonY, double currentHeading) {
     if (horizonY < -50 || horizonY > size.height + 50) return;
 
     // Horizon glowing line
     final linePaint = Paint()
-      ..color = const Color(0xFF38BDF8).withOpacity(0.22)
+      ..color = const Color(0xFF38BDF8).withOpacity(0.3)
       ..strokeWidth = 1.5;
 
     canvas.drawLine(Offset(0, horizonY), Offset(size.width, horizonY), linePaint);
 
-    // Cardinal directions with their degree azimuths
     const cardinals = [
       {'label': 'N', 'deg': 0.0, 'primary': true},
       {'label': 'NE', 'deg': 45.0, 'primary': false},
@@ -235,18 +239,17 @@ class _ARSpatialWeatherPainter extends CustomPainter {
       final label = card['label'] as String;
       final isPrimary = card['primary'] as bool;
 
-      // Calculate relative horizontal angle to user's heading
-      double relAngle = (deg - heading + 540) % 360 - 180;
+      double relAngle = (deg - currentHeading + 540.0) % 360.0 - 180.0;
       if (relAngle < -hFov / 2 - 10 || relAngle > hFov / 2 + 10) continue;
 
       final x = (size.width / 2) + (relAngle / (hFov / 2)) * (size.width / 2);
+      if (!x.isFinite) continue;
 
-      // Tick mark
-      final tickHeight = isPrimary ? 12.0 : 6.0;
+      final tickHeight = isPrimary ? 14.0 : 7.0;
       final tickPaint = Paint()
         ..color = isPrimary
-            ? const Color(0xFF38BDF8).withOpacity(0.8)
-            : Colors.white.withOpacity(0.4)
+            ? const Color(0xFF38BDF8)
+            : Colors.white.withOpacity(0.5)
         ..strokeWidth = isPrimary ? 2.0 : 1.0;
 
       canvas.drawLine(
@@ -255,7 +258,6 @@ class _ARSpatialWeatherPainter extends CustomPainter {
         tickPaint,
       );
 
-      // Cardinal Text label
       final textSpan = TextSpan(
         text: label,
         style: TextStyle(
@@ -278,10 +280,10 @@ class _ARSpatialWeatherPainter extends CustomPainter {
   }
 
   /// Draws 3D AR Wind Stream Ribbons and a glowing 3D Wind Direction Pointer.
-  void _drawARWindStreamsAndPointer(Canvas canvas, Size size, double horizonY) {
+  void _drawARWindStreamsAndPointer(Canvas canvas, Size size, double horizonY, double currentHeading) {
     final windDirection = centerWeather.windDirection;
-    final relativeWindAngle = (windDirection - heading + 360) % 360;
-    final windRad = relativeWindAngle * pi / 180;
+    final relativeWindAngle = (windDirection - currentHeading + 360.0) % 360.0;
+    final windRad = relativeWindAngle * pi / 180.0;
     final windDx = sin(windRad);
     final windDy = -cos(windRad) * 0.35;
 
@@ -293,7 +295,7 @@ class _ARSpatialWeatherPainter extends CustomPainter {
     final effectiveSpeed = max(14.0, centerWeather.windSpeed);
 
     for (final particle in windParticles) {
-      particle.x += windDx * particle.speed * (effectiveSpeed / 15).clamp(1.0, 3.5);
+      particle.x += windDx * particle.speed * (effectiveSpeed / 15.0).clamp(1.0, 3.5);
       particle.y += windDy * particle.speed * 0.6;
 
       if (particle.x > size.width + 150) particle.x = -150;
@@ -306,6 +308,8 @@ class _ARSpatialWeatherPainter extends CustomPainter {
         particle.x + windDx * particle.length,
         particle.y + windDy * particle.length,
       );
+
+      if (!start.dx.isFinite || !end.dx.isFinite) continue;
 
       final gradient = ui.Gradient.linear(
         start,
@@ -324,13 +328,15 @@ class _ARSpatialWeatherPainter extends CustomPainter {
     // ── Center AR 3D Wind Pointer HUD ──
     final pointerX = (size.width / 2) + (sin(windRad) * (size.width * 0.28));
     final pointerY = (horizonY - 100).clamp(90.0, size.height * 0.42);
+
+    if (!pointerX.isFinite || !pointerY.isFinite) return;
+
     final pointerCenter = Offset(pointerX, pointerY);
 
     canvas.save();
     canvas.translate(pointerCenter.dx, pointerCenter.dy);
     canvas.rotate(windRad);
 
-    // Glowing Arrow
     final arrowPaint = Paint()
       ..color = const Color(0xFF38BDF8)
       ..style = PaintingStyle.fill;
@@ -340,7 +346,7 @@ class _ARSpatialWeatherPainter extends CustomPainter {
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
 
     final path = Path();
-    path.moveTo(0, -22); // Tip
+    path.moveTo(0, -22);
     path.lineTo(12, 16);
     path.lineTo(0, 9);
     path.lineTo(-12, 16);
@@ -360,12 +366,14 @@ class _ARSpatialWeatherPainter extends CustomPainter {
   ) {
     final weather = point.weather;
     final pos = Offset(projected.x, projected.y);
-    final baseSize = 145.0 * projected.scale;
-    final opacity = (projected.opacity * (weather.cloudCover / 100).clamp(0.45, 1.0))
-        .clamp(0.35, 0.95);
+    if (!pos.dx.isFinite || !pos.dy.isFinite) return;
+
+    final baseSize = 150.0 * projected.scale;
+    final opacity = (projected.opacity * (weather.cloudCover / 100.0).clamp(0.45, 1.0))
+        .clamp(0.4, 0.95);
 
     // Volumetric cloud billboard
-    if (weather.cloudCover > 10) {
+    if (weather.cloudCover > 5) {
       _drawVolumetricCloudBillboard(canvas, pos, baseSize, opacity, weather);
     }
 
@@ -394,12 +402,12 @@ class _ARSpatialWeatherPainter extends CustomPainter {
     final isStorm = weather.weatherCode >= 60 || weather.weatherCode >= 95;
 
     final cloudColor = isStorm
-        ? const Color(0xFF94A3B8).withOpacity(opacity * 0.85)
-        : Colors.white.withOpacity(opacity * 0.88);
+        ? const Color(0xFF94A3B8).withOpacity(opacity * 0.88)
+        : Colors.white.withOpacity(opacity * 0.9);
 
     final shadowColor = isStorm
         ? const Color(0xFF334155).withOpacity(opacity * 0.6)
-        : const Color(0xFF475569).withOpacity(opacity * 0.45);
+        : const Color(0xFF475569).withOpacity(opacity * 0.48);
 
     final subPuffs = [
       Offset.zero,
@@ -411,6 +419,8 @@ class _ARSpatialWeatherPainter extends CustomPainter {
 
     for (final off in subPuffs) {
       final p = center + off;
+      if (!p.dx.isFinite || !p.dy.isFinite) continue;
+
       final puffR = r * (0.68 + off.dx.abs() / (r * 2.5));
 
       final shadowPaint = Paint()
@@ -466,6 +476,8 @@ class _ARSpatialWeatherPainter extends CustomPainter {
     double distanceMeters,
     WeatherData weather,
   ) {
+    if (!position.dx.isFinite || !position.dy.isFinite) return;
+
     final km = (distanceMeters / 1000.0).toStringAsFixed(1);
     final text = '${weather.conditionIcon} $km km • ${weather.temperature.round()}°C';
 
@@ -495,9 +507,9 @@ class _ARSpatialWeatherPainter extends CustomPainter {
       const Radius.circular(10),
     );
 
-    final bgPaint = Paint()..color = const Color(0xFF0F172A).withOpacity(0.7);
+    final bgPaint = Paint()..color = const Color(0xFF0F172A).withOpacity(0.75);
     final borderPaint = Paint()
-      ..color = const Color(0xFF38BDF8).withOpacity(0.35)
+      ..color = const Color(0xFF38BDF8).withOpacity(0.4)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0;
 

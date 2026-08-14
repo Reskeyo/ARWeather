@@ -42,7 +42,8 @@ class ARProjection {
             sin(dLon / 2);
 
     final c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    return earthRadiusMeters * c;
+    final dist = earthRadiusMeters * c;
+    return dist.isNaN ? 1000.0 : dist;
   }
 
   static double bearingTo(
@@ -59,7 +60,8 @@ class ARProjection {
     final x = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(dLambda);
 
     final bearingRad = atan2(y, x);
-    return (_toDegrees(bearingRad) + 360) % 360;
+    final deg = (_toDegrees(bearingRad) + 360.0) % 360.0;
+    return deg.isNaN ? 0.0 : deg;
   }
 
   /// Projects a target GPS point into 2D screen space with smooth horizon sky anchoring.
@@ -76,34 +78,51 @@ class ARProjection {
     double hFov = defaultHorizontalFov,
     double vFov = defaultVerticalFov,
   }) {
+    if (screenSize.width <= 0 || screenSize.height <= 0) {
+      return const ARProjectedPoint(
+        x: 0,
+        y: 0,
+        distanceMeters: 0,
+        bearingDegrees: 0,
+        isVisible: false,
+        scale: 1,
+        opacity: 1,
+      );
+    }
+
+    final safeHeading = deviceHeading.isNaN ? 0.0 : deviceHeading;
+    final safePitch = devicePitch.isNaN ? 0.0 : devicePitch.clamp(-60.0, 60.0);
+
     final distance = distanceBetween(userLat, userLon, targetLat, targetLon);
     final bearing = bearingTo(userLat, userLon, targetLat, targetLon);
 
     // Relative horizontal angle (-180° to +180°)
-    double relBearing = (bearing - deviceHeading + 540) % 360 - 180;
+    double relBearing = (bearing - safeHeading + 540.0) % 360.0 - 180.0;
 
     // Horizon Y calculation
-    final horizonY = (screenSize.height / 2) + (devicePitch / (vFov / 2)) * (screenSize.height / 2);
+    final horizonY = (screenSize.height / 2) + (safePitch / (vFov / 2)) * (screenSize.height / 2);
 
     // Cloud elevation above horizon
     final elevationAngle = _toDegrees(atan2(targetAltitudeMeters, max(200.0, distance)));
     final screenX = (screenSize.width / 2) + (relBearing / (hFov / 2)) * (screenSize.width / 2);
 
     // Position clouds gracefully in the sky band above horizon
-    final screenY = horizonY - (elevationAngle / (vFov / 2)) * (screenSize.height * 0.4);
+    final screenY = horizonY - (elevationAngle / (vFov / 2)) * (screenSize.height * 0.45);
 
-    final isVisible = screenX >= -250 &&
-        screenX <= screenSize.width + 250 &&
-        screenY >= -300 &&
-        screenY <= screenSize.height + 300;
+    final isVisible = screenX.isFinite &&
+        screenY.isFinite &&
+        screenX >= -300 &&
+        screenX <= screenSize.width + 300 &&
+        screenY >= -350 &&
+        screenY <= screenSize.height + 350;
 
     final distRatio = (distance / maxDistanceMeters).clamp(0.0, 1.0);
-    final scale = (1.1 - distRatio * 0.7).clamp(0.3, 1.1);
-    final opacity = (1.0 - distRatio * 0.55).clamp(0.3, 0.95);
+    final scale = (1.1 - distRatio * 0.65).clamp(0.35, 1.1);
+    final opacity = (1.0 - distRatio * 0.5).clamp(0.4, 0.95);
 
     return ARProjectedPoint(
-      x: screenX,
-      y: screenY,
+      x: screenX.isFinite ? screenX : 0.0,
+      y: screenY.isFinite ? screenY : 0.0,
       distanceMeters: distance,
       bearingDegrees: bearing,
       isVisible: isVisible,
@@ -112,6 +131,6 @@ class ARProjection {
     );
   }
 
-  static double _toRadians(double deg) => deg * pi / 180;
-  static double _toDegrees(double rad) => rad * 180 / pi;
+  static double _toRadians(double deg) => deg * pi / 180.0;
+  static double _toDegrees(double rad) => rad * 180.0 / pi;
 }
