@@ -10,7 +10,16 @@ import '../widgets/wind_direction_indicator.dart';
 import 'camera_layer.dart';
 import 'weather_overlay.dart';
 
-enum DemoWeatherMode { live, storm, windy, snow }
+enum DemoWeatherMode {
+  live,
+  partlyCloudy,
+  overcast,
+  storm,
+  rain,
+  windy,
+  snow,
+  clear,
+}
 
 List<WeatherGridPoint> _generateSimulatedGrid(
   double userLat,
@@ -30,23 +39,35 @@ List<WeatherGridPoint> _generateSimulatedGrid(
       switch (mode) {
         case DemoWeatherMode.storm:
           w = WeatherData(
-            temperature: 16.0,
-            cloudCover: 90.0,
+            temperature: 16.0 + dx * 20,
+            cloudCover: 95.0,
             windDirection: 240.0,
-            windSpeed: 38.0,
-            rain: 8.5,
-            weatherCode: 63, // Heavy Rain
+            windSpeed: 42.0,
+            rain: 9.5,
+            weatherCode: 95, // Thunderstorm
+            latitude: lat,
+            longitude: lon,
+          );
+          break;
+        case DemoWeatherMode.rain:
+          w = WeatherData(
+            temperature: 15.0 + dx * 15,
+            cloudCover: 90.0,
+            windDirection: 210.0,
+            windSpeed: 24.0,
+            rain: 6.2,
+            weatherCode: 63, // Rain
             latitude: lat,
             longitude: lon,
           );
           break;
         case DemoWeatherMode.windy:
           w = WeatherData(
-            temperature: 18.0,
-            cloudCover: 75.0,
+            temperature: 18.0 + dy * 20,
+            cloudCover: 65.0,
             windDirection: 310.0,
-            windSpeed: 45.0,
-            rain: 0.5,
+            windSpeed: 52.0,
+            rain: 0.2,
             weatherCode: 3,
             latitude: lat,
             longitude: lon,
@@ -54,12 +75,48 @@ List<WeatherGridPoint> _generateSimulatedGrid(
           break;
         case DemoWeatherMode.snow:
           w = WeatherData(
-            temperature: -2.0,
+            temperature: -2.0 + dx * 10,
             cloudCover: 85.0,
             windDirection: 45.0,
-            windSpeed: 22.0,
+            windSpeed: 20.0,
             rain: 0.0,
             weatherCode: 73, // Snow
+            latitude: lat,
+            longitude: lon,
+          );
+          break;
+        case DemoWeatherMode.overcast:
+          w = WeatherData(
+            temperature: 17.0 + dx * 10,
+            cloudCover: 92.0,
+            windDirection: 190.0,
+            windSpeed: 16.0,
+            rain: 0.1,
+            weatherCode: 3,
+            latitude: lat,
+            longitude: lon,
+          );
+          break;
+        case DemoWeatherMode.partlyCloudy:
+          w = WeatherData(
+            temperature: 23.0 + dx * 15,
+            cloudCover: 45.0,
+            windDirection: 220.0,
+            windSpeed: 14.0,
+            rain: 0.0,
+            weatherCode: 2,
+            latitude: lat,
+            longitude: lon,
+          );
+          break;
+        case DemoWeatherMode.clear:
+          w = WeatherData(
+            temperature: 27.0 + dx * 10,
+            cloudCover: 0.0,
+            windDirection: 160.0,
+            windSpeed: 8.0,
+            rain: 0.0,
+            weatherCode: 0,
             latitude: lat,
             longitude: lon,
           );
@@ -67,11 +124,11 @@ List<WeatherGridPoint> _generateSimulatedGrid(
         case DemoWeatherMode.live:
         default:
           w = WeatherData(
-            temperature: 20.0,
-            cloudCover: 60.0 + (dx.abs() + dy.abs()) * 400,
+            temperature: 20.0 + dx * 20,
+            cloudCover: 55.0 + (dx.abs() + dy.abs()) * 300,
             windDirection: 210.0,
             windSpeed: 18.0,
-            rain: (dx > 0) ? 1.5 : 0.0,
+            rain: (dx > 0) ? 1.2 : 0.0,
             weatherCode: (dx > 0) ? 61 : 2,
             latitude: lat,
             longitude: lon,
@@ -99,7 +156,7 @@ class ARWeatherScreen extends ConsumerStatefulWidget {
 
 class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
   Timer? _refreshTimer;
-  DemoWeatherMode _activeMode = DemoWeatherMode.live;
+  DemoWeatherMode _activeMode = DemoWeatherMode.partlyCloudy;
 
   @override
   void initState() {
@@ -120,48 +177,95 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
     final weatherGridAsync = ref.watch(weatherGridProvider);
     final compassHeading = ref.watch(compassHeadingProvider).valueOrNull ?? 0.0;
     final devicePitch = ref.watch(devicePitchProvider).valueOrNull ?? 0.0;
+    final deviceRoll = ref.watch(deviceRollProvider).valueOrNull ?? 0.0;
     final windAngle = ref.watch(windRelativeAngleProvider);
 
     final gridData = weatherGridAsync.valueOrNull;
 
     WeatherData centerWeather;
-    if (_activeMode == DemoWeatherMode.storm) {
-      centerWeather = const WeatherData(
-        temperature: 16.0,
-        cloudCover: 90.0,
-        windDirection: 240.0,
-        windSpeed: 38.0,
-        rain: 8.5,
-        weatherCode: 63,
-      );
-    } else if (_activeMode == DemoWeatherMode.windy) {
-      centerWeather = const WeatherData(
-        temperature: 18.0,
-        cloudCover: 75.0,
-        windDirection: 310.0,
-        windSpeed: 45.0,
-        rain: 0.5,
-        weatherCode: 3,
-      );
-    } else if (_activeMode == DemoWeatherMode.snow) {
-      centerWeather = const WeatherData(
-        temperature: -2.0,
-        cloudCover: 85.0,
-        windDirection: 45.0,
-        windSpeed: 22.0,
-        rain: 0.0,
-        weatherCode: 73,
-      );
-    } else {
-      centerWeather = gridData?.centerWeather ??
-          const WeatherData(
-            temperature: 21.0,
-            cloudCover: 55.0,
-            windDirection: 225.0,
-            windSpeed: 16.0,
-            rain: 0.0,
-            weatherCode: 2,
-          );
+    switch (_activeMode) {
+      case DemoWeatherMode.storm:
+        centerWeather = const WeatherData(
+          temperature: 16.0,
+          cloudCover: 95.0,
+          windDirection: 240.0,
+          windSpeed: 42.0,
+          rain: 9.5,
+          weatherCode: 95,
+        );
+        break;
+      case DemoWeatherMode.rain:
+        centerWeather = const WeatherData(
+          temperature: 15.0,
+          cloudCover: 90.0,
+          windDirection: 210.0,
+          windSpeed: 24.0,
+          rain: 6.2,
+          weatherCode: 63,
+        );
+        break;
+      case DemoWeatherMode.windy:
+        centerWeather = const WeatherData(
+          temperature: 18.0,
+          cloudCover: 65.0,
+          windDirection: 310.0,
+          windSpeed: 52.0,
+          rain: 0.2,
+          weatherCode: 3,
+        );
+        break;
+      case DemoWeatherMode.snow:
+        centerWeather = const WeatherData(
+          temperature: -2.0,
+          cloudCover: 85.0,
+          windDirection: 45.0,
+          windSpeed: 20.0,
+          rain: 0.0,
+          weatherCode: 73,
+        );
+        break;
+      case DemoWeatherMode.overcast:
+        centerWeather = const WeatherData(
+          temperature: 17.0,
+          cloudCover: 92.0,
+          windDirection: 190.0,
+          windSpeed: 16.0,
+          rain: 0.1,
+          weatherCode: 3,
+        );
+        break;
+      case DemoWeatherMode.partlyCloudy:
+        centerWeather = const WeatherData(
+          temperature: 23.0,
+          cloudCover: 45.0,
+          windDirection: 220.0,
+          windSpeed: 14.0,
+          rain: 0.0,
+          weatherCode: 2,
+        );
+        break;
+      case DemoWeatherMode.clear:
+        centerWeather = const WeatherData(
+          temperature: 27.0,
+          cloudCover: 0.0,
+          windDirection: 160.0,
+          windSpeed: 8.0,
+          rain: 0.0,
+          weatherCode: 0,
+        );
+        break;
+      case DemoWeatherMode.live:
+      default:
+        centerWeather = gridData?.centerWeather ??
+            const WeatherData(
+              temperature: 22.0,
+              cloudCover: 50.0,
+              windDirection: 220.0,
+              windSpeed: 15.0,
+              rain: 0.0,
+              weatherCode: 2,
+            );
+        break;
     }
 
     final userLat = centerWeather.latitude != 0.0 ? centerWeather.latitude : 52.52;
@@ -179,13 +283,14 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
           // ── Layer 1: Live Camera Feed ──
           const CameraLayer(),
 
-          // ── Layer 2: True AR Spatial Weather Overlay with Wind Streams ──
+          // ── Layer 2: True AR Spatial Weather Overlay with Tilt-Compensated Horizon ──
           WeatherOverlay(
             userLat: userLat,
             userLon: userLon,
             gridPoints: gridPoints,
             heading: compassHeading,
             pitch: devicePitch,
+            roll: deviceRoll,
             centerWeather: centerWeather,
           ),
 
@@ -193,9 +298,9 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
           SafeArea(
             child: Column(
               children: [
-                _buildTopBar(compassHeading, windAngle, centerWeather),
+                _buildTopBar(compassHeading, devicePitch, deviceRoll, windAngle, centerWeather),
 
-                // Interactive Weather Mode Selector (LIVE / STORM / WINDY / SNOW)
+                // Interactive Weather Mode Selector (LIVE / CLOUDS / OVERCAST / STORM / RAIN / WINDY / SNOW / CLEAR)
                 _buildModeSelector(),
 
                 const Spacer(),
@@ -211,6 +316,8 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
 
   Widget _buildTopBar(
     double compassHeading,
+    double devicePitch,
+    double deviceRoll,
     double windAngle,
     WeatherData weather,
   ) {
@@ -236,7 +343,7 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
-                      'True AR Radar',
+                      'AR Weather 3D',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
@@ -244,10 +351,10 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
                       ),
                     ),
                     Text(
-                      '${compassHeading.round()}° ${weather.windDirectionLabel} • ${weather.conditionText}',
+                      '${compassHeading.round()}° ${weather.windDirectionLabel} • Pitch: ${devicePitch.round()}° • Roll: ${deviceRoll.round()}°',
                       style: TextStyle(
                         fontSize: 11,
-                        color: Colors.white.withOpacity(0.65),
+                        color: Colors.white.withOpacity(0.75),
                       ),
                     ),
                   ],
@@ -266,7 +373,7 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
     );
   }
 
-  /// Interactive pill bar allowing instant testing of Storm, Wind, Snow, or Live weather.
+  /// Interactive pill bar allowing instant testing of all weather conditions.
   Widget _buildModeSelector() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -276,11 +383,19 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
           children: [
             _buildModeChip('📍 Live', DemoWeatherMode.live),
             const SizedBox(width: 8),
+            _buildModeChip('⛅ Clouds', DemoWeatherMode.partlyCloudy),
+            const SizedBox(width: 8),
+            _buildModeChip('☁️ Overcast', DemoWeatherMode.overcast),
+            const SizedBox(width: 8),
             _buildModeChip('⛈️ Storm', DemoWeatherMode.storm),
+            const SizedBox(width: 8),
+            _buildModeChip('🌧️ Rain', DemoWeatherMode.rain),
             const SizedBox(width: 8),
             _buildModeChip('💨 Windy', DemoWeatherMode.windy),
             const SizedBox(width: 8),
             _buildModeChip('❄️ Snow', DemoWeatherMode.snow),
+            const SizedBox(width: 8),
+            _buildModeChip('☀️ Clear', DemoWeatherMode.clear),
           ],
         ),
       ),
@@ -296,7 +411,7 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
         decoration: BoxDecoration(
           color: isSelected
               ? const Color(0xFF6366F1).withOpacity(0.85)
-              : Colors.black.withOpacity(0.35),
+              : Colors.black.withOpacity(0.4),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isSelected
@@ -372,3 +487,4 @@ class _ARWeatherScreenState extends ConsumerState<ARWeatherScreen> {
     );
   }
 }
+

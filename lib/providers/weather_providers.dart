@@ -53,7 +53,7 @@ final weatherGridProvider = FutureProvider.autoDispose<WeatherGridData>((ref) as
 
 final weatherRefreshProvider = StateProvider<int>((ref) => 0);
 
-// ─── Rock-Solid Smooth Compass Heading Provider ─────────────────────────────
+// ─── Rock-Solid Smooth 3-DOF Device Orientation Providers ─────────────────────
 
 /// Streams filtered, jitter-free compass heading (0-360°) with NaN protection.
 final compassHeadingProvider = StreamProvider.autoDispose<double>((ref) {
@@ -76,15 +76,13 @@ final compassHeadingProvider = StreamProvider.autoDispose<double>((ref) {
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
 
-    // Smooth filter (alpha = 0.15)
-    currentHeading = (currentHeading + diff * 0.15 + 360.0) % 360.0;
+    // Responsive smoothing filter (alpha = 0.22)
+    currentHeading = (currentHeading + diff * 0.22 + 360.0) % 360.0;
     return currentHeading;
   });
 });
 
-// ─── Rock-Solid Smooth Device Pitch Provider ────────────────────────────────
-
-/// Streams smooth, stabilized pitch angle (-60° to +60°) with NaN protection.
+/// Streams smooth, stabilized pitch and roll angles from accelerometer.
 final devicePitchProvider = StreamProvider.autoDispose<double>((ref) {
   double currentPitch = 0.0;
   bool initialized = false;
@@ -97,9 +95,9 @@ final devicePitchProvider = StreamProvider.autoDispose<double>((ref) {
     final double denom = sqrt(event.x * event.x + event.y * event.y);
     if (denom == 0 || denom.isNaN) return currentPitch;
 
-    // Pitch: tilting phone back (looking up) is positive, forward (looking down) is negative
+    // Pitch: tilting phone back (looking up at sky) is positive, forward (looking at ground) is negative
     final rawPitchRad = atan2(event.z, denom);
-    final rawPitchDeg = (rawPitchRad * 180.0 / pi).clamp(-60.0, 60.0);
+    final rawPitchDeg = (rawPitchRad * 180.0 / pi).clamp(-85.0, 85.0);
 
     if (rawPitchDeg.isNaN || rawPitchDeg.isInfinite) return currentPitch;
 
@@ -109,9 +107,37 @@ final devicePitchProvider = StreamProvider.autoDispose<double>((ref) {
       return rawPitchDeg;
     }
 
-    // Low-pass filter (alpha = 0.12)
-    currentPitch = currentPitch * 0.88 + rawPitchDeg * 0.12;
+    // Low-pass filter (alpha = 0.18) for smooth pitch tracking
+    currentPitch = currentPitch * 0.82 + rawPitchDeg * 0.18;
     return currentPitch;
+  });
+});
+
+/// Streams smooth, stabilized roll angle (-180° to +180°) for tilt-compensated AR.
+final deviceRollProvider = StreamProvider.autoDispose<double>((ref) {
+  double currentRoll = 0.0;
+  bool initialized = false;
+
+  return accelerometerEventStream().map((event) {
+    if (event.x.isNaN || event.y.isNaN || event.z.isNaN) {
+      return currentRoll;
+    }
+
+    // Roll: tilting phone to the right is positive, to the left is negative
+    final rawRollRad = atan2(event.x, event.y.abs() > 0.01 ? event.y : 0.01);
+    final rawRollDeg = (rawRollRad * 180.0 / pi).clamp(-90.0, 90.0);
+
+    if (rawRollDeg.isNaN || rawRollDeg.isInfinite) return currentRoll;
+
+    if (!initialized) {
+      currentRoll = rawRollDeg;
+      initialized = true;
+      return rawRollDeg;
+    }
+
+    // Low-pass filter (alpha = 0.18) for smooth roll tracking
+    currentRoll = currentRoll * 0.82 + rawRollDeg * 0.18;
+    return currentRoll;
   });
 });
 
@@ -125,3 +151,4 @@ final windRelativeAngleProvider = Provider<double>((ref) {
   final angle = (weather.windDirection - heading + 360.0) % 360.0;
   return angle.isNaN ? 0.0 : angle;
 });
+

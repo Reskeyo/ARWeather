@@ -94,3 +94,36 @@ class WeatherGridData {
     required this.gridPoints,
   });
 }
+
+/// Real-time 3-DOF device orientation data for AR rendering.
+class DeviceOrientationData {
+  /// Compass heading in degrees (0° = North, 90° = East, 180° = South, 270° = West).
+  final double heading;
+
+  /// Pitch angle in degrees (-90° looking straight down to +90° looking straight up).
+  /// 0° is pointing horizontally at the horizon.
+  final double pitch;
+
+  /// Roll angle in degrees (-180° to +180°).
+  /// Positive is tilting right, negative is tilting left.
+  final double roll;
+
+  const DeviceOrientationData({
+    this.heading = 0.0,
+    this.pitch = 0.0,
+    this.roll = 0.0,
+  });
+
+  DeviceOrientationData copyWith({
+    double? heading,
+    double? pitch,
+    double? roll,
+  }) {
+    return DeviceOrientationData(
+      heading: heading ?? this.heading,
+      pitch: pitch ?? this.pitch,
+      roll: roll ?? this.roll,
+    );
+  }
+}
+
